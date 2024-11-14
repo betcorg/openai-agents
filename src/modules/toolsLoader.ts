@@ -1,12 +1,7 @@
 import path from 'path';
 import * as fs from 'fs/promises';
 import { OpenAIAgent } from '../agent';
-
-import { ChatCompletionTool } from 'openai/src/resources/index.js';
-import {
-    FunctionDefinition,
-    FunctionParameters,
-} from 'openai/src/resources/shared.js';
+import { ChatCompletionTool, FunctionDefinition, FunctionParameters } from 'openai/resources';
 
 
 type ToolFunction = (args: object) => Promise<string> | string | undefined;

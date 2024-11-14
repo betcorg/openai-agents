@@ -5,15 +5,16 @@
     "esModuleInterop": true,
     "strictNullChecks": true,
     "target": "ES2022",
-    "moduleResolution": "Node10",
-    "module": "CommonJS",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "allowSyntheticDefaultImports": true,
     "declaration": true,
-    "isolatedModules": true,
+    "declarationMap": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "skipLibCheck": true,
-    "allowJs": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "tools"]
+  "exclude": ["node_modules", "dist"]
 }
