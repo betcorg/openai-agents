@@ -1,0 +1,32 @@
+{
+  "name": "openai-agents",
+  "version": "1.0.0",
+  "description": "A TypeScript library extending the OpenAI Node.js SDK for building highly customizable agents and simplifying 'function calling'. Easily create and manage tools to extend LLM capabilities.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc src/index.ts --outDir dist",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "openai",
+    "agent-tools",
+    "chatbot",
+    "function-calling"
+  ],
+  "author": "H. Franc",
+  "license": "MIT",
+  "dependencies": {
+    "openai": "^4.71.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@types/node": "^22.9.0",
+    "eslint": "^9.14.0",
+    "globals": "^15.12.0",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.14.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
