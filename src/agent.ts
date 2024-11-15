@@ -39,11 +39,11 @@ type CompletionParams = Omit<AgentOptions, 'systemInstruction'>;
  * A class that extends the OpenAI API client to manage chat completions and tool interactions.
  */
 export class OpenAIAgent extends OpenAI {
-    /** Required environment variables. */
+
     private static readonly REQUIRED_ENV_VARS = ['OPENAI_API_KEY'];
-    /** Parameters for chat completion requests. */
+
     private completionParams: CompletionParams;
-    /** Path to the directory containing tool function definitions. */
+
     public static toolsDirPath: string | null = null;
 
     public systemInstruction: string | undefined;
@@ -325,6 +325,17 @@ export class OpenAIAgent extends OpenAI {
     }
 
 
+    /**
+     * The function `createChatCompletion` asynchronously creates a chat completion with customizable
+     * options and tool integration.
+     * @param options - The `createChatCompletion` function takes in an options object with the
+     * following parameters: `ChatCompletionCreateParamsNonStreaming`
+     * @returns The `createChatCompletion` function returns a Promise that resolves to a
+     * `CompletionResult` object. The `CompletionResult` object contains the following properties:
+     * - `textResponse`: A string representing the text response received from OpenAI.
+     * - `usage`: An object representing the token usage information.
+     * - `history`: An array of `ChatCompletionMessageParam` objects representing the chat history.
+     */
     public async createChatCompletion(options: {
         message: string;
         systemInstruction?: string;
@@ -363,7 +374,6 @@ export class OpenAIAgent extends OpenAI {
                 toolFunctions = toolChoices.toolFunctions;
             }
 
-            console.log({ currentParams });
             const response = await this.chat.completions.create(
                 currentParams as ChatCompletionCreateParamsNonStreaming
             );
