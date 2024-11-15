@@ -11,7 +11,6 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
