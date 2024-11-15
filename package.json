@@ -11,10 +11,8 @@
       "import": "./dist/index.mjs"
     }
   },
-  "type": "module",
   "scripts": {
-    "build": "tsc && rollup -c",
-    "prepare": "npm run build"
+    "build": "tsc && rollup -c --bundleConfigAsCjs"
   },
   "dependencies": {
     "openai": "^4.71.1"
