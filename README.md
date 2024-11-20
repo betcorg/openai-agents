@@ -238,7 +238,7 @@ const result = await agent.createChatCompletion({
         user: '1234',
     },
     /*
-     If storage is enabled tou can override your initial 
+     If storage is enabled you can override your initial 
      history configurations for each request.
     */
     history: {
