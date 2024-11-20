@@ -1,0 +1,52 @@
+{
+  "name": "openai-agents",
+  "version": "1.0.26",
+  "description": "A TypeScript library extending the OpenAI Node.js SDK for building highly customizable agents and simplifying 'function calling'. Easily create and manage tools to extend LLM capabilities.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs"
+    },
+    "./types": { 
+    "types": "./dist/types.d.ts"
+  }
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "pnpm run clean && tsc && rollup -c --bundleConfigAsCjs",
+    "prepare": "pnpm run build",
+    "pack": "rm *.tgz && pnpm pack"
+  },
+  "dependencies": {
+    "openai": "^4.71.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@types/node": "^22.9.0",
+    "eslint": "^9.14.0",
+    "globals": "^15.12.0",
+    "redis": "^4.7.0",
+    "rollup": "^3.29.5",
+    "rollup-plugin-typescript2": "^0.34.1",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.14.0"
+  },
+  "author": "H. Franc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/betcorg/openai-agents"
+  },
+  "keywords": [
+    "openai",
+    "agent-tools",
+    "chatbot",
+    "function-calling"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
