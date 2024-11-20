@@ -1,6 +1,6 @@
 {
   "name": "openai-agents",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "description": "A TypeScript library extending the OpenAI Node.js SDK for building highly customizable agents and simplifying 'function calling'. Easily create and manage tools to extend LLM capabilities.",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
