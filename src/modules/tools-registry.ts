@@ -1,14 +1,6 @@
 import path from 'path';
 import * as fs from 'fs/promises';
-import { OpenAIAgent } from '../agent';
-import {
-    AgentTools,
-    ChatCompletionTool,
-    FunctionDefinition,
-    ToolChoices,
-    ToolFunction,
-    ToolFunctions,
-} from '../types';
+import { AgentTools, ToolChoices, ToolFunction, ToolFunctions } from '../types';
 
 import {
     ValidationError,
@@ -17,18 +9,20 @@ import {
     FileReadError,
     FileImportError,
     InvalidToolError,
-    ToolConfigurationError,
 } from '../errors';
 
+import { ChatCompletionTool, FunctionDefinition } from 'openai/resources';
+
 /**
- * Singleton class for managing the tools registry.
+ * @class ToolsRegistry
+ * @description Singleton class for managing the tools registry.  Holds the currently loaded tools.
  */
 export class ToolsRegistry {
     private static instance: AgentTools | null = null;
+    public static toolsDirPath: string | null = null;
 
     /**
      * Gets the current instance of the tools registry.
-     * @returns {AgentTools | null} The current tools instance or null if not set.
      */
     static getInstance(): AgentTools | null {
         return ToolsRegistry.instance;
@@ -36,7 +30,6 @@ export class ToolsRegistry {
 
     /**
      * Sets the instance of the tools registry.
-     * @param {AgentTools} tools - The tools instance to set.
      */
     static setInstance(tools: AgentTools): void {
         ToolsRegistry.instance = tools;
@@ -44,98 +37,116 @@ export class ToolsRegistry {
 }
 
 /**
- * Validates the function name.
- * @param {string} name - The name of the function to validate.
- * @throws {ValidationError} If the function name is invalid.
+ * Validates the function name, ensuring it meets OpenAI's requirements.
  */
 const validateFunctionName = (name: string): void => {
     if (!name || typeof name !== 'string') {
-        throw new ValidationError('Function name must be a non-empty string');
+        throw new InvalidToolError(
+            name,
+            'Function name must be a non-empty string'
+        );
     }
     if (name.length > 64) {
-        throw new ValidationError('Function name must not exceed 64 characters');
+        throw new InvalidToolError(
+            name,
+            'Function name must not exceed 64 characters'
+        );
     }
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-        throw new ValidationError('Function name must contain only alphanumeric characters, underscores, and hyphens');
+        throw new InvalidToolError(
+            name,
+            'Function name must contain only alphanumeric characters, underscores, and hyphens'
+        );
     }
 };
 
 /**
- * Validates the function parameters.
- * @param {unknown} params - The parameters of the function to validate.
- * @throws {ValidationError} If the parameters are invalid.
+ * Validates the function parameters, ensuring they are a non-null object.
  */
-const validateFunctionParameters = (params: unknown): void => {
+const validateFunctionParameters = (params: unknown, name: string): void => {
     if (!params || typeof params !== 'object') {
-        throw new ValidationError('Function parameters must be a non-null object');
+        throw new InvalidToolError(
+            name,
+            'Function parameters must be a non-null object'
+        );
     }
 };
 
 /**
- * Validates the function definition.
- * @param {unknown} func - The function definition to validate.
- * @throws {ValidationError} If the function definition is invalid.
+ * Validates the function definition,
+ * checking name, description, parameters, and strict flag.
  */
 const validateFunctionDefinition = (func: unknown): void => {
-    if (!func || typeof func !== 'object') {
-        throw new ValidationError('Function definition must be a non-null object');
-    }
+    const { name, description, parameters, strict } =
+        func as FunctionDefinition;
 
-    const { name, description, parameters, strict } = func as FunctionDefinition;
+    if (!func || typeof func !== 'object') {
+        throw new InvalidToolError(
+            name,
+            'Function definition must be a non-null object'
+        );
+    }
 
     validateFunctionName(name);
 
     if (description !== undefined && typeof description !== 'string') {
-        throw new ValidationError('Function description must be a string when provided');
+        throw new InvalidToolError(
+            name,
+            'Function description must be a string when provided'
+        );
     }
 
     if (parameters !== undefined) {
-        validateFunctionParameters(parameters);
+        validateFunctionParameters(parameters, name);
     }
 
-    if (strict !== undefined && strict !== null && typeof strict !== 'boolean') {
-        throw new ValidationError('Function strict flag must be a boolean when provided');
+    if (
+        strict !== undefined &&
+        strict !== null &&
+        typeof strict !== 'boolean'
+    ) {
+        throw new InvalidToolError(
+            name,
+            'Function strict flag must be a boolean when provided'
+        );
     }
 };
 
 /**
- * Validates a chat completion tool definition.
- * @param {unknown} tool - The tool definition to validate.
- * @throws {ValidationError} If the tool definition is invalid.
+ * Validates a chat completion tool definition,
+ * ensuring it has the correct type and a valid function definition.
  */
 const validateChatCompletionTool = (tool: unknown): void => {
+    const {
+        function: functionDefinition,
+        function: { name },
+        type,
+    } = tool as ChatCompletionTool;
+
     if (!tool || typeof tool !== 'object') {
-        throw new ValidationError('Chat completion tool must be a non-null object');
+        throw new InvalidToolError(
+            name,
+            'Chat completion tool must be a non-null object'
+        );
     }
 
-    const { function: functionDefinition, type } = tool as ChatCompletionTool;
-
     if (type !== 'function') {
-        throw new ValidationError('Chat completion tool type must be "function"');
+        throw new InvalidToolError(
+            name,
+            'Chat completion tool type must be "function"'
+        );
     }
 
     validateFunctionDefinition(functionDefinition);
 };
 
 /**
- * Validates the configuration of tools and their definitions.
- * @param {ChatCompletionTool[]} fnDefinitions - The array of tool definitions.
- * @param {ToolFunctions} functions - The object containing tool implementations.
- * @throws {ValidationError | ToolNotFoundError} If there is a mismatch in definitions or missing implementations.
+ * Validates the configuration of tools, ensuring that all defined tools have corresponding implementations.
  */
 const validateToolConfiguration = (
     fnDefinitions: ChatCompletionTool[],
     functions: ToolFunctions
 ): void => {
-    const definitionCount = fnDefinitions.length;
-    const functionCount = Object.keys(functions).length;
-
-    if (definitionCount !== functionCount) {
-        throw new ValidationError(
-            `Mismatch between number of function definitions (${definitionCount}) and implementations (${functionCount})`
-        );
-    }
-
     for (const def of fnDefinitions) {
         const functionName = def.function.name;
         if (!functions[functionName]) {
@@ -147,12 +158,13 @@ const validateToolConfiguration = (
 };
 
 /**
- * Loads tool files from a specified directory.
+ * Loads tool files (both definitions and implementations) from a specified directory.
+ *
  * @param {string} dirPath - The path to the directory containing tool files.
  * @returns {Promise<AgentTools>} A promise that resolves to the loaded agent tools.
- * @throws {DirectoryAccessError | FileReadError | FileImportError | InvalidToolError | ToolConfigurationError | ValidationError} If an error occurs during loading.
+ * @throws {DirectoryAccessError | FileReadError | FileImportError | InvalidToolError | ToolNotFoundError} If an error occurs during loading.
  */
-export const loadToolsDirFiles = async (
+export const loadToolsDirFunctions = async (
     dirPath: string
 ): Promise<AgentTools> => {
     try {
@@ -220,17 +232,15 @@ export const loadToolsDirFiles = async (
                         toolDefinitions.push(fn as ChatCompletionTool);
                     }
                 } catch (error) {
-                    if (error instanceof ValidationError) {
-                        throw new InvalidToolError(
-                            fullPath,
-                            fnName,
-                            `Invalid tool definition: ${error.message}`
-                        );
-                    }
+                    if (error instanceof InvalidToolError) throw error;
+
                     throw new InvalidToolError(
-                        fullPath,
                         fnName,
-                        'Unexpected error validating tool'
+                        `Unexpected error validating tool: ${
+                            error instanceof Error
+                                ? error.message
+                                : 'Unknown error'
+                        }`
                     );
                 }
             }
@@ -248,11 +258,9 @@ export const loadToolsDirFiles = async (
             error instanceof FileReadError ||
             error instanceof FileImportError ||
             error instanceof InvalidToolError ||
-            error instanceof ToolConfigurationError ||
-            error instanceof ValidationError
-        ) {
+            error instanceof ToolNotFoundError
+        )
             throw error;
-        }
 
         throw new Error(
             `Unexpected error loading tools: ${
@@ -263,24 +271,26 @@ export const loadToolsDirFiles = async (
 };
 
 /**
- * Imports tool functions based on their names.
+ * Imports and returns specific tool functions based on their names.
+ * Loads tools from the directory if they haven't been loaded yet.
+ *
  * @param {string[]} toolNames - An array of tool names to import.
  * @returns {Promise<ToolChoices>} A promise that resolves to the imported tool functions and choices.
- * @throws {ValidationError | ToolNotFoundError} If the tools directory path is not set or tools are missing.
+ * @throws {ValidationError | ToolNotFoundError | InvalidToolError} If the tools directory path is not set or if any requested tools are missing.
  */
 export const importToolFunctions = async (
     toolNames: string[]
 ): Promise<ToolChoices> => {
     try {
-        if (!OpenAIAgent.toolsDirPath) {
+        if (!ToolsRegistry.toolsDirPath) {
             throw new ValidationError(
-                'Tools directory path not set. Call loadToolsDirFiles with your tools directory path first.'
+                'Tools directory path not set. Call loadToolsDirFunctions with your tools directory path first.'
             );
         }
 
         const tools =
             ToolsRegistry.getInstance() ??
-            (await loadToolsDirFiles(OpenAIAgent.toolsDirPath));
+            (await loadToolsDirFunctions(ToolsRegistry.toolsDirPath));
 
         const toolChoices = toolNames
             .map((toolName) =>
@@ -291,8 +301,7 @@ export const importToolFunctions = async (
             .filter((tool): tool is ChatCompletionTool => tool !== undefined);
 
         const missingTools = toolNames.filter(
-            (name) =>
-                !toolChoices.some((tool) => tool.function.name === name)
+            (name) => !toolChoices.some((tool) => tool.function.name === name)
         );
 
         if (missingTools.length > 0) {
@@ -307,11 +316,14 @@ export const importToolFunctions = async (
         };
     } catch (error) {
         if (
+            error instanceof DirectoryAccessError ||
+            error instanceof FileReadError ||
+            error instanceof FileImportError ||
+            error instanceof InvalidToolError ||
             error instanceof ValidationError ||
             error instanceof ToolNotFoundError
-        ) {
+        )
             throw error;
-        }
 
         throw new Error(
             `Failed to import tool functions: ${

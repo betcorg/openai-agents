@@ -2,14 +2,11 @@ import {
     ChatCompletion,
     ChatCompletionCreateParamsNonStreaming,
     CompletionUsage,
-    ResponseChoices,
-} from './types';
+} from 'openai/resources';
+import { ResponseChoices } from './types';
 
 /**
  * Calculates the sum of prompt tokens, completion tokens, and total tokens from multiple `CompletionUsage` objects.
- *
- * @param {...CompletionUsage} usages - One or more `CompletionUsage` objects to sum.
- * @returns {CompletionUsage} A new `CompletionUsage` object representing the sum of the input usages.
  */
 export const getTokensSum = (...usages: CompletionUsage[]): CompletionUsage => {
     const initialUsage: CompletionUsage = {

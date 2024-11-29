@@ -1,44 +1,10 @@
 import {
-    ChatCompletionMessage,
-    ChatCompletionToolMessageParam,
-    ChatCompletionCreateParamsNonStreaming,
     ChatCompletion,
-    CompletionUsage,
-    ChatCompletionMessageParam,
-    ChatModel,
-    ChatCompletionAudioParam,
-    ChatCompletionModality,
-    ChatCompletionPredictionContent,
-    ResponseFormatText,
-    ResponseFormatJSONObject,
-    ResponseFormatJSONSchema,
-    ChatCompletionToolChoiceOption,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionTool,
-    FunctionDefinition,
-    FunctionParameters,
-} from 'openai/resources/index.js';
-
-export type {
-    ChatCompletionMessage,
-    ChatCompletionToolMessageParam,
     ChatCompletionCreateParamsNonStreaming,
-    ChatCompletion,
-    CompletionUsage,
     ChatCompletionMessageParam,
-    ChatModel,
-    ChatCompletionAudioParam,
-    ChatCompletionModality,
-    ChatCompletionPredictionContent,
-    ResponseFormatText,
-    ResponseFormatJSONObject,
-    ResponseFormatJSONSchema,
-    ChatCompletionToolChoiceOption,
-    ChatCompletionSystemMessageParam,
     ChatCompletionTool,
-    FunctionDefinition,
-    FunctionParameters,
-};
+    CompletionUsage,
+} from 'openai/resources';
 
 export type ResponseChoices = string[];
 
@@ -51,23 +17,30 @@ export interface CompletionResult {
 
 export interface HistoryOptions {
     appended_messages?: number;
+    send_tool_messages?: boolean;
     remove_tool_messages?: boolean;
+    ttl?: number;
+    max_length?: number;
 }
+
+export type SaveHistoryOptions = Omit<
+    HistoryOptions,
+    'appended_messages' | 'send_tool_messages'
+>;
 
 export interface AgentCompletionParams
     extends Omit<
         ChatCompletionCreateParamsNonStreaming,
         'messages' | 'stream' | 'stream_options' | 'function_call' | 'functions'
     > {
-    messages?: ChatCompletionMessageParam[];
+    messages?: ChatCompletionMessageParam[] | null;
 }
 
 export interface AgentOptions extends AgentCompletionParams {
-    system_instruction?: string;
+    system_instruction?: string | null;
 }
 
 export interface CreateChatCompletionOptions {
-    message: string;
     system_instruction?: string;
     tool_choices?: string[];
     custom_params?: Partial<AgentCompletionParams>;

@@ -1,4 +1,35 @@
 import OpenAI, { ClientOptions } from 'openai';
+import { RedisClientType } from 'redis';
+import {
+    AgentCompletionParams,
+    AgentOptions,
+    CompletionResult,
+    ToolFunctions,
+    CreateChatCompletionOptions,
+    HistoryOptions,
+} from './types';
+import {
+    ChatCompletionError,
+    DirectoryAccessError,
+    FileImportError,
+    FileReadError,
+    FunctionCallError,
+    InvalidToolError,
+    MessageValidationError,
+    RedisConnectionError,
+    StorageError,
+    ToolCompletionError,
+    ToolNotFoundError,
+    RedisKeyValidationError,
+    ValidationError,
+} from './errors';
+import {
+    importToolFunctions,
+    loadToolsDirFunctions,
+    ToolsRegistry,
+} from './modules/tools-registry';
+import { getCompletionsUsage, handleNResponses } from './utils';
+import { AgentStorage } from './storage';
 import {
     ChatCompletionMessage,
     ChatCompletionToolMessageParam,
@@ -13,41 +44,30 @@ import {
     ResponseFormatJSONSchema,
     ChatCompletionToolChoiceOption,
     ChatCompletionSystemMessageParam,
-    AgentCompletionParams,
-    AgentOptions,
-    CompletionResult,
-    ToolFunctions,
     ChatCompletion,
-    CreateChatCompletionOptions,
-    HistoryOptions,
-} from './types';
-import {
-    importToolFunctions,
-    loadToolsDirFiles,
-} from './modules/tools-registry';
-import { getCompletionsUsage, handleNResponses } from './utils';
-import { RedisClientType } from 'redis';
-import { AgentStorage } from './storage';
-import { ValidationError } from './errors';
+} from 'openai/resources';
 
 /**
- * A class that extends the OpenAI API client to manage chat completions and tool interactions.
+ * @class OpenAIAgent
+ * @description Extends the OpenAI API client to manage chat completions, tool interactions, and persistent storage of conversation history.  Provides methods for creating chat completions, managing tools, and interacting with a Redis storage.
  */
 export class OpenAIAgent extends OpenAI {
     private static readonly REQUIRED_ENV_VARS = ['OPENAI_API_KEY'];
 
     private completionParams: AgentCompletionParams;
 
-    private defaultHistoryMessages: ChatCompletionMessageParam[] | undefined;
+    private defaultHistoryMessages: ChatCompletionMessageParam[] | null = null;
 
-    private Storage: AgentStorage | null = null;
+    public storage: AgentStorage | null = null;
 
-    public static toolsDirPath: string | null = null;
-    
-    public system_instruction: string | undefined;
-    
-    public historyOptions: HistoryOptions | undefined;
+    public system_instruction: string | null = null;
 
+    /**
+     * @constructor
+     * @param {AgentOptions} agentOptions - Options for configuring the agent, including the model, system instruction, initial messages template, etc.
+     * @param {ClientOptions} [options] - Optional OpenAI client options.
+     * @throws {ValidationError} If the model is not specified in the agent options.
+     */
     constructor(agentOptions: AgentOptions, options?: ClientOptions) {
         OpenAIAgent.validateEnvironment();
         super(options);
@@ -56,10 +76,15 @@ export class OpenAIAgent extends OpenAI {
                 'Model is required to initialize the agent instance'
             );
         }
-        this.system_instruction = agentOptions.system_instruction;
+
+        if (agentOptions.system_instruction)
+            this.system_instruction = agentOptions.system_instruction;
         delete agentOptions.system_instruction;
-        this.defaultHistoryMessages = agentOptions.messages;
+
+        if (agentOptions.messages)
+            this.defaultHistoryMessages = agentOptions.messages;
         delete agentOptions.messages;
+
         this.completionParams = agentOptions;
     }
 
@@ -231,14 +256,13 @@ export class OpenAIAgent extends OpenAI {
 
     /**
      * Validates that required environment variables are set.
-     * @throws {Error} If any required environment variables are missing.
      */
     private static validateEnvironment(): void {
         const missingVars = OpenAIAgent.REQUIRED_ENV_VARS.filter(
             (varName) => !process.env[varName]
         );
         if (missingVars.length > 0) {
-            throw new Error(
+            throw new ValidationError(
                 `Missing required environment variables: ${missingVars.join(
                     ', '
                 )}`
@@ -246,52 +270,56 @@ export class OpenAIAgent extends OpenAI {
         }
     }
 
-    private _handleSystemInstructionMessage(
-        defaultInstruction: string | undefined,
+    /**
+     * Determines the system instruction message to use based on default and custom instructions.
+     */
+    private handleSystemInstructionMessage(
+        defaultInstruction: string | undefined | null,
         customInstruction: string | undefined
     ): ChatCompletionSystemMessageParam {
-        let systemInstructionMessage: ChatCompletionSystemMessageParam = {
+        const systemInstructionMessage: ChatCompletionSystemMessageParam = {
             role: 'system',
             content: '',
         };
 
         if (defaultInstruction && !customInstruction) {
-            systemInstructionMessage = {
-                role: 'system',
-                content: defaultInstruction,
-            };
+            systemInstructionMessage.content = defaultInstruction;
         } else if (customInstruction) {
-            systemInstructionMessage = {
-                role: 'system',
-                content: customInstruction,
-            };
+            systemInstructionMessage.content = customInstruction;
         }
 
         return systemInstructionMessage;
     }
 
-    private async _getContextMessages(
+    /**
+     * Retrieves context messages from the default history and/or from persistent storage.
+     */
+    private async handleContextMessages(
         queryParams: ChatCompletionCreateParamsNonStreaming,
-        historyOptions?: HistoryOptions
-    ) {
+        historyOptions: HistoryOptions
+    ): Promise<ChatCompletionMessageParam[]> {
         const userId = queryParams.user ? queryParams.user : 'default';
 
-        let templateMessages: ChatCompletionMessageParam[] = [];
+        let contextMessages: ChatCompletionMessageParam[] = [];
         if (this.defaultHistoryMessages) {
-            templateMessages = this.defaultHistoryMessages;
+            contextMessages = this.defaultHistoryMessages;
         }
 
-        if (this.Storage) {
-            const storedMessages = await this.Storage.getStoredMessages(
+        if (this.storage) {
+            const storedMessages = await this.storage.getChatHistory(
                 userId,
                 historyOptions
             );
-            templateMessages.push(...storedMessages);
+            contextMessages.push(...storedMessages);
         }
-        return templateMessages;
+        console.log('Context length:', contextMessages.length);
+        return contextMessages;
     }
 
-    private async _callChosenFunctions(
+    /**
+     * Executes the functions called by the model and returns their responses.
+     */
+    private async callChosenFunctions(
         responseMessage: ChatCompletionMessage,
         functions: ToolFunctions
     ): Promise<ChatCompletionToolMessageParam[]> {
@@ -337,152 +365,149 @@ export class OpenAIAgent extends OpenAI {
                     content: JSON.stringify(functionResponse),
                 });
             } catch (error) {
-                const errorMessage =
-                    error instanceof Error ? error.message : 'Unknown error';
-                console.error(
-                    `Error calling function '${name}':`,
-                    errorMessage
-                );
-
                 toolMessages.push({
                     tool_call_id: id,
                     role: 'tool',
-                    content: JSON.stringify({ error: errorMessage }),
+                    content: JSON.stringify({
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : 'Unknown error',
+                    }),
                 });
+                throw new FunctionCallError(
+                    name,
+                    error instanceof Error ? error.message : 'Unknown error'
+                );
             }
         }
 
         return toolMessages;
     }
 
-    private async _handleToolCompletion(
-        response: ChatCompletion,
-        queryParams: ChatCompletionCreateParamsNonStreaming,
-        newMessages: ChatCompletionMessageParam[],
-        toolFunctions: ToolFunctions
-    ) {
+    /**
+     * Handles the process of calling tools based on the model's response
+     * and making a subsequent API call with the tool responses.
+     */
+    private async handleToolCompletion(toolCompletionOpts: {
+        response: ChatCompletion;
+        queryParams: ChatCompletionCreateParamsNonStreaming;
+        newMessages: ChatCompletionMessageParam[];
+        toolFunctions: ToolFunctions;
+        historyOptions: HistoryOptions;
+    }): Promise<CompletionResult> {
+        const {
+            response,
+            queryParams,
+            newMessages,
+            toolFunctions,
+            historyOptions,
+        } = toolCompletionOpts;
         if (!queryParams?.messages?.length) queryParams.messages = [];
         const responseMessage = response.choices[0].message;
         queryParams.messages.push(responseMessage);
 
-        const toolMessages = await this._callChosenFunctions(
-            responseMessage,
-            toolFunctions
-        );
+        try {
+            const toolMessages = await this.callChosenFunctions(
+                responseMessage,
+                toolFunctions
+            );
+            queryParams.messages.push(...toolMessages);
+            newMessages.push(...toolMessages);
 
-        queryParams.messages.push(...toolMessages);
-        newMessages.push(...toolMessages);
+            const secondResponse = await this.chat.completions.create(
+                queryParams as ChatCompletionCreateParamsNonStreaming
+            );
 
-        const secondResponse = await this.chat.completions.create(
-            queryParams as ChatCompletionCreateParamsNonStreaming
-        );
-        const secondResponseMessage = secondResponse.choices[0].message;
+            const secondResponseMessage = secondResponse.choices[0].message;
 
-        if (!secondResponseMessage) {
-            throw new Error(
-                'No response message received from second tool query to OpenAI'
+            newMessages.push(secondResponseMessage);
+            if (this.storage) {
+                await this.storage.saveChatHistory(
+                    newMessages,
+                    queryParams.user,
+                    historyOptions
+                );
+            }
+
+            const responses = handleNResponses(secondResponse, queryParams);
+            return {
+                choices: responses,
+                total_usage: getCompletionsUsage(response, secondResponse),
+                completion_messages: newMessages,
+                completions: [response, secondResponse],
+            };
+        } catch (error) {
+            if (error instanceof FunctionCallError) throw error;
+            throw new ToolCompletionError(
+                queryParams,
+                error instanceof Error ? error : undefined
             );
         }
-
-        newMessages.push(secondResponseMessage);
-        if (this.Storage)
-            await this.Storage.saveChatHistory(queryParams.user, newMessages);
-        const responses = handleNResponses(secondResponse, queryParams);
-        return {
-            choices: responses,
-            total_usage: getCompletionsUsage(response, secondResponse),
-            completion_messages: newMessages,
-            completions: [response, secondResponse],
-        };
     }
 
-    public async loadToolFuctions(toolsDirAddr: string): Promise<boolean> {
-        if (!toolsDirAddr)
-            throw new ValidationError('Tools directory path required.');
-        await loadToolsDirFiles(toolsDirAddr);
-        OpenAIAgent.toolsDirPath = toolsDirAddr;
-        return true;
-    }
-
-    public async setStorage(
-        client: RedisClientType,
-        options?: { history: HistoryOptions }
-    ): Promise<boolean> {
-        if (!client)
-            throw new ValidationError('Instance of RedisClientType required.');
-        if (options?.history) this.historyOptions = options.history;
-        this.Storage = new AgentStorage(client);
-        return true;
-    }
-
-    public async deleteChatHistory(userId: string): Promise<boolean> {
-        if (!this.Storage) {
-            throw new ValidationError('Agent storage is not initalized.');
-        }
-        await this.Storage.deleteHistory(userId);
-        return true;
-    }
-
-    public async getChatHistory(
-        userId: string,
-        options?: HistoryOptions
-    ): Promise<ChatCompletionMessageParam[]> {
-            if (this.Storage) {
-                const messages = await this.Storage.getStoredMessages(
-                    userId,
-                    options
-                );
-                return messages;
-            }
-            return [];
-    }
-
+    /**
+     * Creates a chat completion, handles tool calls (if any), and manages conversation history.
+     *
+     * @param {string} message - The user's message.
+     * @param {CreateChatCompletionOptions} [completionOptions] - Options for the chat completion, including custom parameters, tool choices, and history management.
+     * @returns {Promise<CompletionResult>} A promise that resolves to the chat completion result.
+     * @throws {ChatCompletionError | StorageError | RedisConnectionError | RedisKeyValidationError | MessageValidationError | DirectoryAccessError | FileReadError | FileImportError | InvalidToolError | ToolNotFoundError | ToolCompletionError | FunctionCallError | ValidationError} If an error occurs during the completion process.
+     */
     public async createChatCompletion(
-        options: CreateChatCompletionOptions
+        message: string,
+        completionOptions: CreateChatCompletionOptions = {}
     ): Promise<CompletionResult> {
         const queryParams: ChatCompletionCreateParamsNonStreaming = {
             ...this.completionParams,
-            ...(options.custom_params as ChatCompletionCreateParamsNonStreaming),
+            ...(completionOptions.custom_params as ChatCompletionCreateParamsNonStreaming),
         };
 
         const historyOptions = {
-            ...this.historyOptions,
-            ...options.history,
+            ...this.storage?.historyOptions,
+            ...completionOptions.history,
         };
 
-        if (
-            this.Storage &&
-            options.tool_choices &&
-            this.historyOptions?.appended_messages
-        )
-            historyOptions.remove_tool_messages = true;
-
-        const storedMessages =
-            await this._getContextMessages(queryParams, historyOptions);
-
-        const systemImstructionMessage = this._handleSystemInstructionMessage(
-            this.system_instruction,
-            options.system_instruction
-        );
-
-        if (systemImstructionMessage.content) {
-            // Overwrites the default instruction if there is a new instruction in the current request
-            if (storedMessages[0]?.role === 'system') storedMessages.shift();
-            storedMessages.unshift(systemImstructionMessage);
-        }
-
-        const newMessages: ChatCompletionMessageParam[] = [
-            { role: 'user', content: options.message },
-        ];
-
-        storedMessages.push(...newMessages);
-        queryParams.messages = storedMessages;
+        let storedMessages: ChatCompletionMessageParam[] = [];
 
         try {
+            storedMessages = await this.handleContextMessages(
+                queryParams,
+                historyOptions
+            );
+
+            if (
+                this.storage &&
+                completionOptions.tool_choices &&
+                historyOptions?.appended_messages
+            )
+                storedMessages =
+                    this.storage.removeOrphanedToolMessages(storedMessages);
+
+            const systemImstructionMessage =
+                this.handleSystemInstructionMessage(
+                    this.system_instruction,
+                    completionOptions.system_instruction
+                );
+
+            if (systemImstructionMessage.content) {
+                // Overwrites the default instruction if there is a new instruction in the current request
+                if (storedMessages[0]?.role === 'system')
+                    storedMessages.shift();
+                storedMessages.unshift(systemImstructionMessage);
+            }
+
+            const newMessages: ChatCompletionMessageParam[] = [
+                { role: 'user', content: message },
+            ];
+
+            storedMessages.push(...newMessages);
+            queryParams.messages = storedMessages;
+
             let toolFunctions: ToolFunctions | undefined;
-            if (options.tool_choices?.length) {
+            if (completionOptions.tool_choices?.length) {
                 const toolChoices = await importToolFunctions(
-                    options.tool_choices
+                    completionOptions.tool_choices
                 );
                 queryParams.tools = toolChoices.toolChoices;
                 toolFunctions = toolChoices.toolFunctions;
@@ -491,24 +516,24 @@ export class OpenAIAgent extends OpenAI {
             const response = await this.chat.completions.create(queryParams);
             const responseMessage = response.choices[0].message;
 
-            if (!responseMessage) {
-                throw new Error('No response message received from OpenAI');
-            }
             newMessages.push(responseMessage);
 
             if (responseMessage.tool_calls && toolFunctions) {
-                return await this._handleToolCompletion(
+                return await this.handleToolCompletion({
                     response,
                     queryParams,
                     newMessages,
-                    toolFunctions
-                );
+                    toolFunctions,
+                    historyOptions,
+                });
             } else {
-                if (this.Storage)
-                    await this.Storage.saveChatHistory(
+                if (this.storage) {
+                    await this.storage.saveChatHistory(
+                        newMessages,
                         queryParams.user,
-                        newMessages
+                        historyOptions
                     );
+                }
                 const responses = handleNResponses(response, queryParams);
                 return {
                     choices: responses,
@@ -518,9 +543,92 @@ export class OpenAIAgent extends OpenAI {
                 };
             }
         } catch (error) {
-            const errorMessage =
-                error instanceof Error ? error.message : 'Unknown error';
-            throw new Error(`Chat completion failed: ${errorMessage}`);
+            if (
+                error instanceof StorageError ||
+                error instanceof RedisConnectionError ||
+                error instanceof RedisKeyValidationError ||
+                error instanceof MessageValidationError ||
+                error instanceof DirectoryAccessError ||
+                error instanceof FileReadError ||
+                error instanceof FileImportError ||
+                error instanceof InvalidToolError ||
+                error instanceof ToolNotFoundError ||
+                error instanceof ToolCompletionError ||
+                error instanceof FunctionCallError ||
+                error instanceof ValidationError
+            )
+                throw error;
+            throw new ChatCompletionError(
+                queryParams,
+                error instanceof Error ? error : undefined
+            );
         }
+    }
+
+    /**
+     * Loads tool functions from the specified directory.
+     *
+     * @param {string} toolsDirPath - The path to the directory containing the tool functions.
+     * @returns {Promise<boolean>} A promise that resolves to true if the tools are loaded successfully.
+     * @throws {ValidationError} If the tools directory path is not provided or invalid.
+     */
+    public async loadToolFuctions(toolsDirPath: string): Promise<boolean> {
+        if (!toolsDirPath)
+            throw new ValidationError('Tools directory path required.');
+        await loadToolsDirFunctions(toolsDirPath);
+        ToolsRegistry.toolsDirPath = toolsDirPath;
+        return true;
+    }
+
+    /**
+     * Sets up the storage using a Redis client.
+     *
+     * @param {RedisClientType} client - The Redis client instance.
+     * @param {{ history: HistoryOptions }} [options] - Options for configuring history storage.
+     * @returns {Promise<boolean>} A promise that resolves to true if the storage is set up successfully.
+     * @throws {RedisConnectionError} If the Redis client is not provided.
+     */
+    public async setStorage(
+        client: RedisClientType,
+        options?: { history: HistoryOptions }
+    ): Promise<boolean> {
+        if (!client)
+            throw new RedisConnectionError('Instance of Redis is required.');
+
+        this.storage = new AgentStorage(client);
+        if (options?.history) this.storage.historyOptions = options.history;
+        return true;
+    }
+
+    /**
+     * Deletes the chat history for a given user.
+     *
+     * @param {string} userId - The ID of the user whose history should be deleted.
+     * @returns {Promise<boolean>} A promise that resolves to true if the history is deleted successfully.
+     * @throws {RedisConnectionError} If the storage is not initialized.
+     */
+    public async deleteChatHistory(userId: string): Promise<boolean> {
+        if (!this.storage) {
+            throw new RedisConnectionError('Agent storage is not initalized.');
+        }
+        await this.storage.deleteHistory(userId);
+        return true;
+    }
+
+    /**
+     * Retrieves the chat history for a given user.
+     *
+     * @param {string} userId - The ID of the user whose history should be retrieved.
+     * @param {HistoryOptions} [options] - Options for retrieving history.
+     * @returns {Promise<ChatCompletionMessageParam[]>} A promise that resolves to an array of chat messages.
+     * @throws {RedisConnectionError} If the storage is not initialized.
+     */
+    public async getChatHistory(
+        userId: string,
+    ): Promise<ChatCompletionMessageParam[]> {
+        if (!this.storage)
+            throw new RedisConnectionError('Agent storage is not initialized');
+        const messages = await this.storage.getChatHistory(userId);
+        return messages;
     }
 }
