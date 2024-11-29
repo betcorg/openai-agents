@@ -4,7 +4,7 @@ A TypeScript library that extends the functionality of the official OpenAI SDK, 
 
 ## Features
 
--   **Customizable AI Agents**: Easily create AI agents with configurable parameters.
+-   **Customizable AI Agents**: Easily create AI chatbots with configurable parameters.
 -   **Tool Integration**: Seamlessly load and utilize external tool functions.
 -   **Chat History Management**: Store and retrieve chat history using Redis.
 -   **Completion Usage Management**: Get the total token count of the completions made.
@@ -59,9 +59,8 @@ console.log(agent.max_tokens); // 300
 Use the `createChatCompletion` method to generate chat responses:
 
 ```javascript
-const result = await agent.createChatCompletion({
-    message: 'Hi',
-});
+const result = await agent.createChatCompletion('Hi');
+
 console.log(result);
 /* 
 Output:
@@ -84,24 +83,28 @@ Output:
 */
 
 // You can customize the completion parameters for each request.
-const resultWithCustomParams = await agent.createChatCompletion({
-    message: 'Explain AI in 20 words',
+const resultWithCustomParams = await agent.createChatCompletion(
+    'Explain AI in 20 words',
     // These parameters will override the default configurations only for this request.
-    system_instruction: 'Provide helpful responses.',
-    custom_params: {
-        max_tokens: 500,
-        temperature: 1,
-    },
-});
+    {
+        system_instruction: 'Provide helpful responses.',
+        custom_params: {
+            max_tokens: 500,
+            temperature: 1,
+        },
+    }
+);
 
 // If you want to produce more than one output
-const resultWithMultipleOutputs = await agent.createChatCompletion({
-    message: 'Explain AI in 20 words',
-    system_instruction: 'Provide helpful responses.',
-    custom_params: {
-        n: 3, // The number of required outputs.
-    },
-});
+const resultWithMultipleOutputs = await agent.createChatCompletion(
+    'Explain AI in 20 words',
+    {
+        system_instruction: 'Provide helpful responses.',
+        custom_params: {
+            n: 3, // The number of required outputs.
+        },
+    }
+);
 
 for (const choice of resultWithMultipleOutputs.choices) {
     console.log(choice);
@@ -182,10 +185,12 @@ This method returns `true` if the tools were loaded correctly.
 You can now use your tools by specifying their names in the `tool_choices` property. The agent will choose the appropriate tools for the given request from the loaded files.
 
 ```javascript
-const result = await agent.createChatCompletion({
-    message: 'Search on Google "AI courses" and give me 5 results',
-    tool_choices: ['googleSearch'],
-});
+const result = await agent.createChatCompletion(
+    'Search on Google "AI courses" and give me 5 results',
+    {
+        tool_choices: ['googleSearch'],
+    }
+);
 
 console.log(result);
 ```
@@ -214,38 +219,54 @@ const redisClient = await createClient({
 await agent.setStorage(redisClient, {
     history: {
         /*
-         The number of messages that will be sent
-         to the model in the context messages array.
+         The number of messages that will be sent to the model in the context messages array.
         */
         appended_messages: 6,
+
         /*
-         Whether or not to remove tool messages from the messages 
-         array before they are sent to the model.
+         Whether or not to send tool calls and function responses to the model in the context messages array.
          This property does not modify the database, only the retrieved messages.
-         If the 'appended_messages` property contains a value this will be automatialy set to true.
+        */
+        send_tool_messages: true,
+
+        /*
+         Whether or not to remove tool messages (including tool calls and function responses) from the history stored in the database.
         */
         remove_tool_messages: true,
+
+        /*
+         The maximum number of messages stored for a specified user or session.
+        */
+        max_length: 100,
+
+        /*
+         The time (in seconds) that a chat history can live before being deleted.
+        */
+        ttl: 60 * 60 * 24,
     },
 });
 ```
 
-Now you can pass a `user` property in the `custom_params` object of your request, and the agent will store the conversation for that specific user. If you omit this `user` property, the agent will store the chat under a `user:default` key in a Redis list.
+Now you can pass a `user` property in the `custom_params` object of your request, and the agent will store the conversation for that specific user. If you omit this `user` property, the agent will store the chat under a `default` key in a Redis list.
 
 ```javascript
-const result = await agent.createChatCompletion({
-    message: 'Search on Google "AI courses" and give me 5 results',
-    custom_params: {
-        user: '1234',
-    },
+const result = await agent.createChatCompletion(
+    'Search on Google "AI courses" and give me 5 results',
+    {
+        custom_params: {
+            user: '1234',
+        },
+
     /*
-     If storage is enabled you can override your initial 
+     If the agent storage is enabled you can override your initial 
      history configurations for each request.
     */
-    history: {
-        appended_messages: 6,
-        remove_tool_messages: true,
-    },
-});
+        history: {
+            appended_messages: 6,
+            remove_tool_messages: true,
+        },
+    }
+);
 ```
 
 #### Deleting a user's history:
@@ -257,10 +278,7 @@ await agent.deleteChatHistory(userID);
 #### Retrieving a user's history:
 
 ```javascript
-await agent.getChatHistory(userID, {
-    appended_messages: 10,
-    remove_tool_messages: false,
-});
+await agent.getChatHistory(userID);
 ```
 
 ## API Reference
@@ -296,6 +314,7 @@ constructor(agentOptions: AgentOptions, options?: ClientOptions)
 ##### Chat History Management
 
 -   **`setStorage(client: RedisClientType, options: { history: HistoryOptions }): Promise<boolean>`**: Configures Redis as the storage for chat history.
+
     -   **`client: RedisClientType`**: A Redis client instance.
     -   **`options: { history: HistoryOptions }`**: Options for managing the chat history stored in Redis.
 
