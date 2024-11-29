@@ -1,51 +1,125 @@
-export class ValidationError extends Error {
-    constructor(message?: string) {
+import { ChatCompletionCreateParamsNonStreaming } from "openai/resources";
+
+// Base Error
+export abstract class BaseError extends Error {
+    constructor(message: string, public readonly cause?: Error) {
         super(message);
-        this.name = 'ValidationError';
+        this.name = this.constructor.name;
+        Error.captureStackTrace(this, this.constructor);
     }
 }
 
-export class ToolNotFoundError extends Error {
-    constructor(toolName: string) {
-        super(`Tool not found: ${toolName}`);
-        this.name = 'ToolNotFoundError';
+// Validation Errors
+export class ValidationError extends BaseError {
+    constructor(message: string, cause?: Error) {
+        super(message, cause);
     }
 }
 
-export class DirectoryAccessError extends Error {
+export class MessageValidationError extends ValidationError {
+    constructor(message: string, cause?: Error) {
+        super(message, cause);
+    }
+}
+
+// File System Errors
+export class FileSystemError extends BaseError {
+    constructor(
+        message: string,
+        public readonly path: string,
+        cause?: Error
+    ) {
+        super(`${message}: ${path}`, cause);
+    }
+}
+
+export class DirectoryAccessError extends FileSystemError {
     constructor(dirPath: string, cause?: Error) {
-        super(`Was not possible to access the directory: ${dirPath}`);
-        this.name = 'DirectoryAccessError';
-        this.cause = cause;
+        super('Unable to access directory', dirPath, cause);
     }
 }
 
-export class FileReadError extends Error {
+export class FileReadError extends FileSystemError {
     constructor(filePath: string, cause?: Error) {
-        super(`Error reading file: ${filePath}`);
-        this.name = 'FileReadError';
-        this.cause = cause;
+        super('Error reading file', filePath, cause);
     }
 }
 
-export class FileImportError extends Error {
+export class FileImportError extends FileSystemError {
     constructor(filePath: string, cause?: Error) {
-        super(`Error importing file: ${filePath}`);
-        this.name = 'FileImportError';
-        this.cause = cause;
+        super('Error importing file', filePath, cause);
     }
 }
 
-export class InvalidToolError extends Error {
-    constructor(filePath: string, functionName: string, message: string ) {
-        super(`Invalid tool found at ${filePath}: ${functionName}. ${message}`);
-        this.name = 'InvalidToolError';
+// Tool Errors
+export class ToolError extends BaseError {
+    constructor(message: string, public readonly toolName: string, cause?: Error) {
+        super(`${message}: ${toolName}`, cause);
     }
 }
 
-export class ToolConfigurationError extends Error {
-    constructor(message: string) {
-        super(`Error on the tools configuration: ${message}`);
-        this.name = 'ToolConfigurationError';
+export class InvalidToolError extends ToolError {
+    constructor(toolName: string, details: string, cause?: Error) {
+        super(`Invalid tool found: ${details}`, toolName, cause);
+    }
+}
+
+export class ToolNotFoundError extends ToolError {
+    constructor(toolName: string, cause?: Error) {
+        super('Tool not found', toolName, cause);
+    }
+}
+
+export class FunctionCallError extends ToolError {
+    constructor(functionName: string, details: string, cause?: Error) {
+        super(`Error calling function: ${details}`, functionName, cause);
+    }
+}
+
+// API Errors
+export class APIError extends BaseError {
+    constructor(
+        message: string,
+        public readonly payload: ChatCompletionCreateParamsNonStreaming,
+        cause?: Error
+    ) {
+        super(`${message}. Payload: ${JSON.stringify(payload)}`, cause);
+    }
+}
+
+export class ToolCompletionError extends APIError {
+    constructor(payload: ChatCompletionCreateParamsNonStreaming, cause?: Error) {
+        super('Tool completion failed', payload, cause);
+    }
+}
+
+export class ChatCompletionError extends APIError {
+    constructor(payload: ChatCompletionCreateParamsNonStreaming, cause?: Error) {
+        super('Chat completion failed', payload, cause);
+    }
+}
+
+// Storage Errors
+export class StorageError extends BaseError {
+    constructor(message: string, cause?: Error) {
+        super(message, cause);
+    }
+}
+
+export class RedisError extends StorageError {
+    constructor(message: string, cause?: Error) {
+        super(`Redis error: ${message}`, cause);
+    }
+}
+
+export class RedisConnectionError extends RedisError {
+    constructor(message: string, cause?: Error) {
+        super(message, cause);
+    }
+}
+
+export class RedisKeyValidationError extends RedisError {
+    constructor(message: string, cause?: Error) {
+        super(`Key validation failed: ${message}`, cause);
     }
 }
