@@ -30,3 +30,4 @@ dist-*.zip
 build/
 tests/
 tools/
+changelog.md
