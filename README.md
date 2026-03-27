@@ -1,3 +1,7 @@
+# Important
+This repository was created for learning purposes only and should not be used in production environments.
+
+---
 # OpenAI-Agents
 
 A TypeScript library that extends the functionality of the official OpenAI SDK, enabling enhanced chat completions and tool integrations.
